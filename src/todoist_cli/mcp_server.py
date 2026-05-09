@@ -23,14 +23,13 @@ from .config import Config, load_config
 
 mcp = FastMCP("todoist")
 
-_cfg: Config | None = None
-
 
 def _config() -> Config:
-    global _cfg
-    if _cfg is None:
-        _cfg = load_config()
-    return _cfg
+    # Read fresh on every tool call. Caching across calls means scope or
+    # token edits in config.toml don't take effect until the MCP subprocess
+    # restarts — dangerous for a delegated-agent tool. Cost is ~5ms TOML
+    # parse, negligible vs. the network round-trip to Todoist.
+    return load_config()
 
 
 def _client() -> TodoistClient:
