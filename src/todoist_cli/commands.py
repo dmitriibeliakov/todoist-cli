@@ -40,7 +40,10 @@ class TaskRow:
 @dataclass(frozen=True)
 class ProjectRow:
     id: str
-    name: str
+    # Path-encoded hierarchy, e.g. "Work/Pigment/Hiring". Top-level projects
+    # render their name unchanged. Literal '/' in a project name is escaped
+    # to '\/' so the separator is unambiguous (PRD §5.1).
+    path: str
 
 
 @dataclass(frozen=True)
@@ -316,9 +319,41 @@ def task_comment(
     return _to_commentrow(new), new
 
 
+def _escape_path_segment(name: str) -> str:
+    """Escape '/' in a project name so '/' can be the path separator."""
+    return name.replace("\\", "\\\\").replace("/", "\\/")
+
+
+def _project_paths(projects: list[Any]) -> dict[str, str]:
+    """Map project id → 'Parent/Child/Leaf' path. Robust to cycles / orphans."""
+    by_id = {str(p.id): p for p in projects}
+    paths: dict[str, str] = {}
+
+    def resolve(pid: str, seen: frozenset[str]) -> str:
+        if pid in paths:
+            return paths[pid]
+        p = by_id.get(pid)
+        if p is None:
+            return ""
+        seg = _escape_path_segment(p.name)
+        parent_id = getattr(p, "parent_id", None)
+        if parent_id is None or str(parent_id) not in by_id or pid in seen:
+            paths[pid] = seg
+        else:
+            prefix = resolve(str(parent_id), seen | {pid})
+            paths[pid] = f"{prefix}/{seg}" if prefix else seg
+        return paths[pid]
+
+    for p in projects:
+        resolve(str(p.id), frozenset())
+    return paths
+
+
 def project_ls(client: TodoistClientProtocol) -> tuple[list[ProjectRow], list[Any]]:
     raw = client.list_projects()
-    rows = [ProjectRow(id=str(p.id), name=p.name) for p in raw]
+    paths = _project_paths(list(raw))
+    rows = [ProjectRow(id=str(p.id), path=paths[str(p.id)]) for p in raw]
+    rows.sort(key=lambda r: r.path.lower())
     return rows, raw
 
 
@@ -332,4 +367,6 @@ def project_add(
         # call so bad input exits 2, not 1.
         filters.validate_project_color(color)
     new = client.add_project(name.strip(), color=color)
-    return ProjectRow(id=str(new.id), name=new.name), new
+    # New project's path is just its (escaped) name — parent assignment is
+    # not exposed by `project add` in v1.
+    return ProjectRow(id=str(new.id), path=_escape_path_segment(new.name)), new

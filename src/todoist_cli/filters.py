@@ -118,29 +118,62 @@ def task_matches_due_buckets(
 
 def resolve_project(
     selector: str | None,
-    projects: Iterable,  # iterable of objects with .id and .name
+    projects: Iterable,  # iterable of objects with .id, .name, .parent_id
 ) -> str | None:
     """Resolve a ``--project`` selector to a project id.
 
-    ``selector`` may be a numeric id or a case-insensitive exact name. Returns
-    None if selector is None. Raises :class:`NotFoundError` if no match,
-    :class:`UsageError` if ambiguous.
+    ``selector`` accepts:
+      * an opaque project id (exact match);
+      * a case-insensitive **path** like ``Work/Pigment/Hiring`` — disambiguates
+        multiple projects that share a leaf name;
+      * a case-insensitive **leaf name** like ``Pigment`` — only when unique.
+
+    Returns ``None`` if selector is empty. Raises :class:`NotFoundError` on
+    no match, :class:`UsageError` on ambiguous leaf name.
     """
     if selector is None or selector == "":
         return None
     plist = list(projects)
-    # Exact-id match first (numeric ids per Todoist).
+    # Exact-id match first.
     for p in plist:
         if str(p.id) == selector:
             return str(p.id)
-    # Case-insensitive exact name match.
+    # Build path map (mirror of commands._project_paths but kept local to
+    # avoid a circular import — small enough that DRY isn't worth it).
+    by_id = {str(p.id): p for p in plist}
+    paths: dict[str, str] = {}
+
+    def _path(pid: str, seen: frozenset[str]) -> str:
+        if pid in paths:
+            return paths[pid]
+        p = by_id.get(pid)
+        if p is None:
+            return ""
+        seg = p.name.replace("\\", "\\\\").replace("/", "\\/")
+        parent_id = getattr(p, "parent_id", None)
+        if parent_id is None or str(parent_id) not in by_id or pid in seen:
+            paths[pid] = seg
+        else:
+            prefix = _path(str(parent_id), seen | {pid})
+            paths[pid] = f"{prefix}/{seg}" if prefix else seg
+        return paths[pid]
+
+    for p in plist:
+        _path(str(p.id), frozenset())
+
     sel_lower = selector.lower()
-    matches = [p for p in plist if p.name.lower() == sel_lower]
-    if len(matches) == 1:
-        return str(matches[0].id)
-    if len(matches) > 1:
+    # Path match (preferred).
+    path_matches = [pid for pid, path in paths.items() if path.lower() == sel_lower]
+    if len(path_matches) == 1:
+        return path_matches[0]
+    # Leaf-name match.
+    name_matches = [p for p in plist if p.name.lower() == sel_lower]
+    if len(name_matches) == 1:
+        return str(name_matches[0].id)
+    if len(name_matches) > 1:
         raise UsageError(
-            f'project "{selector}" is ambiguous ({len(matches)} matches); use --project <id>'
+            f'project "{selector}" is ambiguous ({len(name_matches)} matches); '
+            f"use the full path (e.g. Parent/Child) or --project <id>"
         )
     raise NotFoundError(f'project "{selector}" not found')
 

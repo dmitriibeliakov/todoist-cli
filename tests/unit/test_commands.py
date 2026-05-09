@@ -174,7 +174,7 @@ def test_project_ls(fake_client):
 
 def test_project_add(fake_client):
     row, _ = commands.project_add(fake_client, "New thing")
-    assert row.name == "New thing"
+    assert row.path == "New thing"
 
 
 def test_project_add_invalid_color_raises_usage_before_api(fake_client):
@@ -187,4 +187,20 @@ def test_project_add_invalid_color_raises_usage_before_api(fake_client):
 
 def test_project_add_valid_color_accepted(fake_client):
     row, _ = commands.project_add(fake_client, "Booky", color="berry_red")
-    assert row.name == "Booky"
+    assert row.path == "Booky"
+
+
+def test_project_ls_paths_reflect_hierarchy(fake_client):
+    """PRD §5.1 — project_ls path column encodes hierarchy as 'Parent/Child'."""
+    parent = fake_client.add_project("WorkRoot")
+    child_obj = fake_client.add_project("Sub")
+    child_obj.parent_id = parent.id
+    rows, _ = commands.project_ls(fake_client)
+    by_id = {r.id: r.path for r in rows}
+    assert by_id[str(child_obj.id)] == "WorkRoot/Sub"
+
+
+def test_project_ls_escapes_slash_in_name(fake_client):
+    p = fake_client.add_project("a/b")
+    rows, _ = commands.project_ls(fake_client)
+    assert any(r.id == str(p.id) and r.path == "a\\/b" for r in rows)

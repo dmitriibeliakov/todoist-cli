@@ -85,16 +85,22 @@ def test_task_row_no_embedded_newlines_even_with_multiline_content():
 
 
 def test_project_row_two_columns():
-    row = ProjectRow(id="6cV", name="Inbox")
+    row = ProjectRow(id="6cV", path="Inbox")
     line = formatting.render_project_row(row)
     assert line.count("\t") == 1
     assert line.split("\t") == ["6cV", "Inbox"]
 
 
 def test_project_row_whitespace_normalised():
-    row = ProjectRow(id="x", name="Side\tproject:\nbook")
+    row = ProjectRow(id="x", path="Side\tproject:\nbook")
     line = formatting.render_project_row(row)
     assert line.split("\t")[1] == "Side project: book"
+
+
+def test_project_row_path_preserves_separator():
+    row = ProjectRow(id="x", path="Work/Pigment/Hiring")
+    line = formatting.render_project_row(row)
+    assert line.split("\t")[1] == "Work/Pigment/Hiring"
 
 
 # ---------------------------------------------------------------------------

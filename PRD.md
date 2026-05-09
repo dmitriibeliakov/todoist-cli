@@ -253,13 +253,18 @@ Example (3-task agent listing — top-level tasks, so `parent` is `-`):
 9876543212	2026-05-09	p1	Side project: book	-	Ship PRD draft
 ```
 
-**Projects** — 2 columns (project name whitespace-normalised per the cross-cutting rule):
+**Projects** — 2 columns. The second column is a **path** that encodes parent/child hierarchy with `/` as separator. Top-level projects render their name unchanged; sub-projects render as `Parent/Child[/Grandchild...]`. A literal `/` inside a project name is escaped as `\/` so the separator is unambiguous. Whitespace normalisation (cross-cutting rule) applies to each segment. Rows are sorted case-insensitively by path so siblings cluster.
 
 ```
-<id>	<name>
+<id>	<path>
 6cV9xyz	Inbox
-6cV9abc	Side project: book
+6cV9aaa	Work
+6cV9bbb	Work/Pigment
+6cV9ccc	Work/Pigment/Hiring
+6cV9ddd	a\/b
 ```
+
+**Why path notation:** agents reason about hierarchy intuitively when it looks like a filesystem path. A prefix match (`Work/`) gives them a subtree filter for free, and `--project Work/Pigment` disambiguates leaf names that exist under multiple parents.
 
 **Comments** (in `task get` output) — 3 columns:
 

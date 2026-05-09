@@ -116,7 +116,10 @@ def build_parser() -> argparse.ArgumentParser:
             f"{_PRIORITY_HELP} {_EXIT_CODES}"
         ),
     )
-    p_ls.add_argument("--project", help="exact (case-insensitive) project name or numeric id.")
+    p_ls.add_argument(
+        "--project",
+        help="project id, full path (e.g. Work/Pigment), or leaf name (case-insensitive).",
+    )
     p_ls.add_argument(
         "--due",
         action="append",
@@ -150,7 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("content", help="task content.")
     p_add.add_argument("-d", "--due", help=_DUE_HELP)
     p_add.add_argument("-p", "--priority", type=int, help=f"UI priority 1-4. {_PRIORITY_HELP}")
-    p_add.add_argument("-P", "--project", help="project name (case-insensitive) or id.")
+    p_add.add_argument(
+        "-P", "--project",
+        help="project id, full path (e.g. Work/Pigment), or leaf name (case-insensitive).",
+    )
     p_add.add_argument("--parent", help="parent task id (creates a sub-task).")
     _add_global_flags(p_add)
 
@@ -213,7 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_proj_ls = sub_proj.add_parser(
         "ls",
         help="list projects (compact).",
-        description="List projects. Output: 2 tab-separated columns — id, name. " + _EXIT_CODES,
+        description=(
+            "List projects. Output: 2 tab-separated columns — id, path. "
+            "Path encodes hierarchy with '/' (e.g. 'Work/Pigment/Hiring'); "
+            "literal '/' in a project name is escaped as '\\/'. " + _EXIT_CODES
+        ),
     )
     _add_global_flags(p_proj_ls)
 

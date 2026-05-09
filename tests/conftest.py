@@ -36,6 +36,7 @@ class FakeProject:
     id: str
     name: str
     is_inbox_project: bool = False
+    parent_id: str | None = None
 
 
 @dataclass

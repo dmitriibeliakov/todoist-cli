@@ -45,7 +45,10 @@ def render_task_rows(rows: list[TaskRow]) -> str:
 
 
 def render_project_row(p: ProjectRow) -> str:
-    return f"{p.id}\t{_norm(p.name)}"
+    # _norm strips embedded tabs/newlines from the (already-escaped) path.
+    # The '/' separator is preserved; literal '/' inside names is escaped
+    # upstream as '\/' (see commands._escape_path_segment).
+    return f"{p.id}\t{_norm(p.path)}"
 
 
 def render_project_rows(rows: list[ProjectRow]) -> str:
