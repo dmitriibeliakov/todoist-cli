@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "todoist-cli"
-version = "1.0.0"
-description = "Personal Todoist CLI, agent-tailored output"
+version = "1.1.0"
+description = "Personal Todoist CLI + MCP server, agent-tailored output"
 requires-python = ">=3.11"
 authors = [{ name = "Dima Beliakov", email = "beliakov@cteleport.com" }]
 dependencies = [
     "todoist-api-python>=2.1.7",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +18,7 @@ dev = ["pytest>=7"]
 
 [project.scripts]
 todoist = "todoist_cli.cli:main"
+todoist-mcp = "todoist_cli.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
