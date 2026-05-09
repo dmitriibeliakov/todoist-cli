@@ -327,3 +327,57 @@ def test_cli_task_get_outside_scope_exits_4(patched_cli, monkeypatch):
     code, _, err = _capture(monkeypatch, ["task", "get", "1003"])
     assert code == 4
     assert "not found" in err
+
+
+# ---------------------------------------------------------------------------
+# MCP server fail-closed (delegation safety)
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_main_refuses_to_start_without_scope(monkeypatch):
+    """MCP wrapper must NOT silently expose full account access when no
+    scope is set. The whole purpose of running in MCP mode is delegation."""
+    from todoist_cli import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_config",
+        lambda: config.Config(token="t", scope_project_id=None),
+    )
+    monkeypatch.delenv("TODOIST_MCP_ALLOW_UNSCOPED", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        mcp_server.main()
+    assert exc.value.code == 3
+
+
+def test_mcp_main_starts_with_scope(monkeypatch):
+    from todoist_cli import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_config",
+        lambda: config.Config(token="t", scope_project_id="6abc"),
+    )
+    started = {"called": False}
+
+    def fake_run():
+        started["called"] = True
+
+    monkeypatch.setattr(mcp_server.mcp, "run", fake_run)
+    mcp_server.main()
+    assert started["called"]
+
+
+def test_mcp_main_allow_unscoped_env_overrides(monkeypatch):
+    from todoist_cli import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_config",
+        lambda: config.Config(token="t", scope_project_id=None),
+    )
+    monkeypatch.setenv("TODOIST_MCP_ALLOW_UNSCOPED", "1")
+    started = {"called": False}
+    monkeypatch.setattr(mcp_server.mcp, "run", lambda: started.__setitem__("called", True))
+    mcp_server.main()
+    assert started["called"]

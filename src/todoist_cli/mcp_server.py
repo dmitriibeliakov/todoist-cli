@@ -186,6 +186,24 @@ def show_scope() -> dict:
 
 
 def main() -> None:
+    # Fail-closed: refuse to serve when no scope is configured. The MCP
+    # wrapper's purpose is to delegate restricted access to an agent — an
+    # unscoped server would silently expose the entire Todoist account.
+    # Set TODOIST_MCP_ALLOW_UNSCOPED=1 to override (e.g. for personal use
+    # on a trusted machine where you actually want full access).
+    import os
+    import sys
+
+    cfg = _config()
+    if cfg.scope_project_id is None and not os.environ.get("TODOIST_MCP_ALLOW_UNSCOPED"):
+        print(
+            "error: refusing to start MCP server without a scope lock.\n"
+            "  Run 'todoist scope set <project>' and add 'locked = true'\n"
+            "  to ~/.config/todoist-cli/config.toml, or set\n"
+            "  TODOIST_MCP_ALLOW_UNSCOPED=1 to allow full-account access.",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
     mcp.run()
 
 
