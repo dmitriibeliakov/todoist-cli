@@ -161,30 +161,6 @@ def list_projects() -> list[dict]:
     return [_row(r) for r in rows]
 
 
-@mcp.tool()
-def add_project(
-    name: str,
-    color: str | None = None,
-    parent: str | None = None,
-) -> dict:
-    """Create a new project. Under scope-lock, defaults to the scope root as parent."""
-    row, _ = commands.project_add(
-        _client(),
-        name,
-        color=color,
-        parent=parent,
-        scope_project_id=_scope(),
-    )
-    return _row(row)
-
-
-@mcp.tool()
-def show_scope() -> dict:
-    """Return the current scope-lock setting (read-only)."""
-    info = commands.scope_show(_client(), _scope())
-    return _row(info)
-
-
 def main() -> None:
     # Fail-closed: refuse to serve when no scope is configured. The MCP
     # wrapper's purpose is to delegate restricted access to an agent — an

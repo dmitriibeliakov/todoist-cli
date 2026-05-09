@@ -73,7 +73,7 @@ For Claude Code / Claude Desktop:
 }
 ```
 
-The agent should see exactly these tools: `list_tasks`, `get_task`, `add_task`, `complete_task`, `delete_task`, `postpone_task`, `set_task_priority`, `comment_on_task`, `list_projects`, `add_project`, `show_scope`. There is no `scope_set` / `scope_clear` tool by design — scope is operator-controlled.
+The agent should see exactly these tools: `list_tasks`, `get_task`, `add_task`, `complete_task`, `delete_task`, `postpone_task`, `set_task_priority`, `comment_on_task`, `list_projects`. Project creation, scope inspection, and scope mutation are intentionally not MCP tools — they are operator-only via the CLI.
 
 ### 6. Confirm fail-closed behavior
 
