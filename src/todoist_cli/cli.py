@@ -29,7 +29,7 @@ from .commands import (
     task_pri,
     task_rm,
 )
-from .config import CONFIG_PATH, Config, load_config, write_scope, write_token
+from .config import Config, load_config, resolved_config_path, write_scope, write_token
 from .errors import TodoistCliError
 from .formatting import (
     render_json,
@@ -96,8 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="read a token from stdin (or prompt), validate, and save to ~/.config/todoist-cli/config.toml (mode 0600).",
         description=(
             "Read a Todoist personal API token from stdin (or prompt if a TTY), "
-            "validate it via GET /projects, then write it to "
-            f"{CONFIG_PATH} with mode 0600. The token is never printed. "
+            "validate it via GET /projects, then write it to the config file "
+            "(mode 0600). The token is never printed. "
+            "Path: $TODOIST_CLI_CONFIG if set, else ~/.config/todoist-cli/config.toml. "
             "On success: prints 'saved <path>' (suppressed by --quiet) or "
             "emits {\"saved\": \"<path>\"} under --json."
         ),
@@ -378,9 +379,9 @@ def _cmd_auth_login(ns: argparse.Namespace) -> int:
         # PRD §5.3 — under --json we emit a JSON acknowledgement instead of
         # the human "saved <path>" line so callers parsing stdout as JSON
         # don't choke. Documented in `auth login --help`.
-        _emit_json({"saved": str(CONFIG_PATH)})
+        _emit_json({"saved": str(resolved_config_path())})
     elif not ns.quiet:
-        print(f"saved {CONFIG_PATH}")
+        print(f"saved {resolved_config_path()}")
     return 0
 
 
@@ -540,14 +541,13 @@ def _cmd_scope_show(ns: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
-_SCOPE_LOCKED_MSG = (
-    f"scope is locked; edit {CONFIG_PATH} (set [scope].locked = false) to change it"
-)
+def _scope_locked_msg() -> str:
+    return f"scope is locked; edit {resolved_config_path()} (set [scope].locked = false) to change it"
 
 
 def _cmd_scope_set(ns: argparse.Namespace, cfg: Config) -> int:
     if cfg.scope_locked:
-        print(f"error: {_SCOPE_LOCKED_MSG}", file=sys.stderr)
+        print(f"error: {_scope_locked_msg()}", file=sys.stderr)
         return 3
     # Resolve against full account (ignoring any current scope) so that a
     # user can switch scope without first clearing it.
@@ -563,7 +563,7 @@ def _cmd_scope_set(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_scope_clear(ns: argparse.Namespace, cfg: Config) -> int:
     if cfg.scope_locked:
-        print(f"error: {_SCOPE_LOCKED_MSG}", file=sys.stderr)
+        print(f"error: {_scope_locked_msg()}", file=sys.stderr)
         return 3
     write_scope(None)
     if ns.json:

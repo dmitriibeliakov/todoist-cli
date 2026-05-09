@@ -17,6 +17,41 @@ from .errors import AuthError
 CONFIG_DIR = Path.home() / ".config" / "todoist-cli"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 ENV_VAR = "TODOIST_TOKEN"
+CONFIG_PATH_ENV_VAR = "TODOIST_CLI_CONFIG"
+
+
+def resolved_config_path(env: dict[str, str] | None = None) -> Path:
+    """Return the config file path, honouring ``TODOIST_CLI_CONFIG`` if set.
+
+    ``Path.home()`` is unreliable when the CLI is spawned by another
+    process (Docker, ``docker exec``, systemd, launchd) — HOME may differ
+    between parent and child. The env var is the operator's escape hatch.
+    """
+    env = env if env is not None else os.environ
+    override = env.get(CONFIG_PATH_ENV_VAR, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return CONFIG_PATH
+
+
+def _clean_env_token(raw: str | None) -> str | None:
+    """Return the env-supplied token, or None if it's obviously broken.
+
+    Rejects un-interpolated shell-variable forms (``$FOO`` / ``${FOO}``),
+    whitespace-bearing strings, and empty values. Does NOT enforce a
+    format regex — the Todoist docs only show 40-char hex by example;
+    locking to that would brick the CLI on a future format change.
+    """
+    if raw is None:
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    if s.startswith("$"):
+        return None
+    if any(c.isspace() for c in s):
+        return None
+    return s
 
 
 @dataclass(frozen=True)
@@ -39,14 +74,17 @@ def load_config(*, env: dict[str, str] | None = None, path: Path | None = None) 
     """Resolve token + default project per PRD §4 precedence.
 
     Order:
-    1. ``TODOIST_TOKEN`` env var.
-    2. config.toml.
+    1. ``TODOIST_TOKEN`` env var (if value passes basic sanity checks).
+    2. config.toml (path from ``TODOIST_CLI_CONFIG`` if set, else HOME default).
     3. AuthError.
+
+    A junk env var (un-interpolated ``${...}``, whitespace, empty) silently
+    falls through to the file rather than being propagated as a token.
     """
     env = env if env is not None else dict(os.environ)
-    path = path if path is not None else CONFIG_PATH
+    path = path if path is not None else resolved_config_path(env)
 
-    token_env = env.get(ENV_VAR, "").strip()
+    token_env = _clean_env_token(env.get(ENV_VAR))
     file_data: dict = {}
     if path.exists():
         with path.open("rb") as fh:
@@ -116,7 +154,7 @@ def _serialise(
 def write_token(token: str, *, path: Path | None = None, default_project: str | None = None) -> None:
     """Write token to config.toml with mode 0600. Preserves an existing
     [scope] section if present. PRD §4."""
-    path = path if path is not None else CONFIG_PATH
+    path = path if path is not None else resolved_config_path()
     existing = _read_raw(path)
     scope_section = existing.get("scope") or {}
     if isinstance(scope_section, dict):
@@ -141,7 +179,7 @@ def write_scope(project_id: str | None, *, path: Path | None = None) -> None:
     Note: this function does NOT itself enforce scope_locked — callers
     (cli._cmd_scope_set / _cmd_scope_clear) check before invoking.
     """
-    path = path if path is not None else CONFIG_PATH
+    path = path if path is not None else resolved_config_path()
     existing = _read_raw(path)
     token = str(existing.get("token", "")).strip()
     if not token:

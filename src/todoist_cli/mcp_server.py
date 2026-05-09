@@ -169,17 +169,38 @@ def main() -> None:
     import os
     import sys
 
-    cfg = _config()
-    if cfg.scope_project_id is None and not os.environ.get("TODOIST_MCP_ALLOW_UNSCOPED"):
+    from .config import resolved_config_path
+
+    try:
+        cfg = _config()
+        if cfg.scope_project_id is None and not os.environ.get("TODOIST_MCP_ALLOW_UNSCOPED"):
+            cfg_path = resolved_config_path()
+            print(
+                "error: refusing to start MCP server without a scope lock.\n"
+                f"  Run 'todoist scope set <project>' and add 'locked = true' to {cfg_path},\n"
+                "  or set TODOIST_MCP_ALLOW_UNSCOPED=1 to allow full-account access.",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise SystemExit(3)
+        mcp.run()
+    except SystemExit:
+        # Already-formatted error; preserve exit code.
+        raise
+    except Exception as e:
+        # Catches both pre-run failures (AuthError when no token / no
+        # config file) and post-handshake failures (anyio TaskGroup
+        # wrappings, FastMCP loop errors). An upstream supervisor like
+        # Hermes may swallow the framework's own traceback into a
+        # generic 'TaskGroup (1 sub-exception)' line — emit a concrete
+        # one-line marker first so operators can grep stderr for the
+        # real cause without re-running the binary by hand.
         print(
-            "error: refusing to start MCP server without a scope lock.\n"
-            "  Run 'todoist scope set <project>' and add 'locked = true'\n"
-            "  to ~/.config/todoist-cli/config.toml, or set\n"
-            "  TODOIST_MCP_ALLOW_UNSCOPED=1 to allow full-account access.",
+            f"todoist-mcp failed: {type(e).__name__}: {e}",
             file=sys.stderr,
+            flush=True,
         )
-        raise SystemExit(3)
-    mcp.run()
+        raise
 
 
 if __name__ == "__main__":

@@ -265,9 +265,9 @@ def test_cli_auth_login_json_emits_json(monkeypatch, tmp_path):
 
     from todoist_cli import config as _config
 
-    # Patch config write target and TodoistClient validation.
-    monkeypatch.setattr(_config, "CONFIG_PATH", tmp_path / "config.toml")
-    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.toml")
+    # Patch config write target via the env override and TodoistClient validation.
+    target = tmp_path / "config.toml"
+    monkeypatch.setenv("TODOIST_CLI_CONFIG", str(target))
     monkeypatch.setattr(cli, "TodoistClient", lambda token: type("C", (), {"list_projects": lambda self: []})())
     code, out, err = _capture(monkeypatch, ["auth", "login", "--json"], stdin_text="abc123\n")
     assert code == 0
@@ -381,3 +381,43 @@ def test_mcp_main_allow_unscoped_env_overrides(monkeypatch):
     monkeypatch.setattr(mcp_server.mcp, "run", lambda: started.__setitem__("called", True))
     mcp_server.main()
     assert started["called"]
+
+
+def test_mcp_main_emits_marker_on_failure(monkeypatch, capsys):
+    """When mcp.run() raises post-handshake, an upstream supervisor (Hermes)
+    may swallow the framework traceback. Verify our one-line marker hits
+    stderr first so operators can grep for the real cause."""
+    from todoist_cli import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_config",
+        lambda: config.Config(token="t", scope_project_id="s"),
+    )
+
+    def boom():
+        raise RuntimeError("simulated post-handshake failure")
+
+    monkeypatch.setattr(mcp_server.mcp, "run", boom)
+    with pytest.raises(RuntimeError):
+        mcp_server.main()
+    captured = capsys.readouterr()
+    assert "todoist-mcp failed: RuntimeError" in captured.err
+    assert "simulated post-handshake failure" in captured.err
+
+
+def test_mcp_main_emits_marker_on_pre_run_auth_error(monkeypatch, capsys):
+    """AuthError from load_config (no token) was previously bubbling as a
+    raw Python traceback via Hermes. Now must surface a one-line marker."""
+    from todoist_cli import mcp_server
+    from todoist_cli.errors import AuthError
+
+    def no_token():
+        raise AuthError("no token. set TODOIST_TOKEN or run 'todoist auth login'")
+
+    monkeypatch.setattr(mcp_server, "_config", no_token)
+    monkeypatch.setenv("TODOIST_MCP_ALLOW_UNSCOPED", "1")  # bypass scope gate
+    with pytest.raises(AuthError):
+        mcp_server.main()
+    captured = capsys.readouterr()
+    assert "todoist-mcp failed: AuthError" in captured.err

@@ -21,6 +21,16 @@ pipx ensurepath            # one-time
 pipx install git+https://github.com/dmitriibeliakov/todoist-cli.git
 ```
 
+### 1b. (Containers / weird HOME) Pin the config path
+
+The CLI normally stores config at `~/.config/todoist-cli/config.toml`, where `~` comes from `Path.home()`. In Docker, `docker exec`, systemd, or other contexts where HOME differs between parent and child processes, this can silently break. Set `TODOIST_CLI_CONFIG` to an absolute path and the CLI/MCP will use it everywhere — no HOME games:
+
+```sh
+export TODOIST_CLI_CONFIG=/opt/data/.config/todoist-cli/config.toml
+```
+
+Set this **before** the next steps so the token, scope, and lock flag all land in the same file the MCP server will read at runtime.
+
 ### 2. Save the token
 
 ```sh
@@ -114,6 +124,16 @@ pipx upgrade todoist-cli
 ```
 
 Re-running `auth login` preserves the `[scope]` section and `locked` flag.
+
+---
+
+## Environment variables — quick reference
+
+| Var                          | Effect                                                                                                                       |
+|:-----------------------------|:-----------------------------------------------------------------------------------------------------------------------------|
+| `TODOIST_TOKEN`              | API token, takes precedence over the file. Junk values (un-interpolated `${...}`, whitespace) are ignored, file is used.     |
+| `TODOIST_CLI_CONFIG`         | Absolute path to the config file. Overrides the HOME-derived default — necessary in containers and other split-HOME setups.  |
+| `TODOIST_MCP_ALLOW_UNSCOPED` | If `1`, `todoist-mcp` starts even with no scope set. Default is to refuse — designed for delegated agents.                   |
 
 ---
 
