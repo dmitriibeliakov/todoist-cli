@@ -98,8 +98,14 @@ class FakeClient:
                 return p
         raise LookupError(f"project {project_id} not found")
 
-    def add_project(self, name: str, *, color: str | None = None) -> FakeProject:
-        new = FakeProject(id=f"new-proj-{len(self.added_projects) + 1}", name=name)
+    def add_project(
+        self, name: str, *, color: str | None = None, parent_id: str | None = None
+    ) -> FakeProject:
+        new = FakeProject(
+            id=f"new-proj-{len(self.added_projects) + 1}",
+            name=name,
+            parent_id=parent_id,
+        )
         self.projects.append(new)
         self.added_projects.append(new)
         return new

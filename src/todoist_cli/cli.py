@@ -18,6 +18,8 @@ from .client import TodoistClient
 from .commands import (
     project_add,
     project_ls,
+    scope_resolve,
+    scope_show,
     task_add,
     task_comment,
     task_done,
@@ -27,7 +29,7 @@ from .commands import (
     task_pri,
     task_rm,
 )
-from .config import CONFIG_PATH, Config, load_config, write_token
+from .config import CONFIG_PATH, Config, load_config, write_scope, write_token
 from .errors import TodoistCliError
 from .formatting import (
     render_json,
@@ -101,6 +103,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_global_flags(p_login)
+
+    # scope
+    p_scope = sub.add_parser(
+        "scope",
+        help="scope: lock the CLI to one project (and its sub-projects).",
+        description=(
+            "Lock every CLI read and write to a single project subtree. "
+            "Out-of-scope ids are reported as 'not found' (exit 4). "
+            "Note: the Todoist API token still has full account access; "
+            "this is a CLI-side guardrail, not a hard security boundary. " + _EXIT_CODES
+        ),
+    )
+    sub_scope = p_scope.add_subparsers(dest="scope_cmd", required=True, metavar="<subcommand>")
+    p_scope_show = sub_scope.add_parser(
+        "show",
+        help="print the current scope (id + path), or '-' if unset.",
+        description="Print 'id\\tpath' for the current scope, or '-' if no scope is set.",
+    )
+    _add_global_flags(p_scope_show)
+    p_scope_set = sub_scope.add_parser(
+        "set",
+        help="lock to a project (id, full path, or unique leaf name).",
+        description=(
+            "Resolve <project> to a project id and persist it to the config file. "
+            "After this, every command only sees the chosen project and its descendants."
+        ),
+    )
+    p_scope_set.add_argument("project", help="project id, full path, or leaf name.")
+    _add_global_flags(p_scope_set)
+    p_scope_clear = sub_scope.add_parser(
+        "clear",
+        help="remove the scope lock.",
+        description="Remove the [scope] section from config, restoring full-account visibility.",
+    )
+    _add_global_flags(p_scope_clear)
 
     # task
     p_task = sub.add_parser("task", help="task: list / get / create / mutate.")
@@ -234,6 +271,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_proj_add.add_argument("name", help="project name.")
     p_proj_add.add_argument("--color", help="Todoist colour name.")
+    p_proj_add.add_argument(
+        "--parent",
+        help=(
+            "parent project id, full path, or leaf name. Under a scope "
+            "lock, parent must resolve inside scope; if omitted, the new "
+            "project is created as a child of the scope root."
+        ),
+    )
     _add_global_flags(p_proj_add)
 
     # Top-level shorthand verbs (PRD §6 alias column).
@@ -354,6 +399,7 @@ def _cmd_task_ls(ns: argparse.Namespace, cfg: Config) -> int:
         due_buckets=ns.due,
         priority_ui=ns.priority,
         limit=ns.limit,
+        scope_project_id=cfg.scope_project_id,
     )
     if ns.json:
         _emit_json(raw)
@@ -365,7 +411,7 @@ def _cmd_task_ls(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_task_get(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    detail, raw = task_get(client, ns.id)
+    detail, raw = task_get(client, ns.id, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json(raw)
     else:
@@ -383,6 +429,7 @@ def _cmd_task_add(ns: argparse.Namespace, cfg: Config) -> int:
         project=ns.project,
         parent_id=ns.parent,
         default_project_name=cfg.default_project,
+        scope_project_id=cfg.scope_project_id,
     )
     if ns.json:
         _emit_json(raw)
@@ -393,7 +440,7 @@ def _cmd_task_add(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_task_done(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    task_done(client, ns.id)
+    task_done(client, ns.id, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json({"done": ns.id})
     elif not ns.quiet:
@@ -403,7 +450,7 @@ def _cmd_task_done(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_task_rm(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    task_rm(client, ns.id)
+    task_rm(client, ns.id, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json({"deleted": ns.id})
     elif not ns.quiet:
@@ -413,7 +460,7 @@ def _cmd_task_rm(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_task_pp(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    row, raw = task_postpone(client, ns.id, ns.due)
+    row, raw = task_postpone(client, ns.id, ns.due, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json(raw)
     elif not ns.quiet:
@@ -423,7 +470,7 @@ def _cmd_task_pp(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_task_pri(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    row, raw = task_pri(client, ns.id, ns.priority)
+    row, raw = task_pri(client, ns.id, ns.priority, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json(raw)
     elif not ns.quiet:
@@ -436,7 +483,7 @@ def _cmd_task_comment(ns: argparse.Namespace, cfg: Config) -> int:
     body = ns.text
     if body == "-":
         body = sys.stdin.read()
-    crow, raw = task_comment(client, ns.id, body)
+    crow, raw = task_comment(client, ns.id, body, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json(raw)
     elif not ns.quiet:
@@ -446,7 +493,7 @@ def _cmd_task_comment(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_project_ls(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    rows, raw = project_ls(client)
+    rows, raw = project_ls(client, scope_project_id=cfg.scope_project_id)
     if ns.json:
         _emit_json(raw)
     else:
@@ -457,11 +504,72 @@ def _cmd_project_ls(ns: argparse.Namespace, cfg: Config) -> int:
 
 def _cmd_project_add(ns: argparse.Namespace, cfg: Config) -> int:
     client = _make_client(cfg)
-    row, raw = project_add(client, ns.name, color=ns.color)
+    row, raw = project_add(
+        client,
+        ns.name,
+        color=ns.color,
+        parent=ns.parent,
+        scope_project_id=cfg.scope_project_id,
+    )
     if ns.json:
         _emit_json(raw)
     elif not ns.quiet:
         _print(render_project_row(row))
+    return 0
+
+
+def _cmd_scope_show(ns: argparse.Namespace, cfg: Config) -> int:
+    if cfg.scope_project_id is None:
+        if ns.json:
+            _emit_json({"scope": None, "locked": cfg.scope_locked})
+        else:
+            _print("-" + ("\tlocked" if cfg.scope_locked else ""))
+        return 0
+    client = _make_client(cfg)
+    info = scope_show(client, cfg.scope_project_id)
+    if ns.json:
+        _emit_json({
+            "project_id": info.project_id,
+            "path": info.path,
+            "locked": cfg.scope_locked,
+        })
+    else:
+        path = info.path or "?"
+        suffix = "\tlocked" if cfg.scope_locked else ""
+        _print(f"{info.project_id}\t{path}{suffix}")
+    return 0
+
+
+_SCOPE_LOCKED_MSG = (
+    f"scope is locked; edit {CONFIG_PATH} (set [scope].locked = false) to change it"
+)
+
+
+def _cmd_scope_set(ns: argparse.Namespace, cfg: Config) -> int:
+    if cfg.scope_locked:
+        print(f"error: {_SCOPE_LOCKED_MSG}", file=sys.stderr)
+        return 3
+    # Resolve against full account (ignoring any current scope) so that a
+    # user can switch scope without first clearing it.
+    client = _make_client(cfg)
+    pid, path = scope_resolve(client, ns.project)
+    write_scope(pid)
+    if ns.json:
+        _emit_json({"project_id": pid, "path": path})
+    elif not ns.quiet:
+        _print(f"scope\t{pid}\t{path}")
+    return 0
+
+
+def _cmd_scope_clear(ns: argparse.Namespace, cfg: Config) -> int:
+    if cfg.scope_locked:
+        print(f"error: {_SCOPE_LOCKED_MSG}", file=sys.stderr)
+        return 3
+    write_scope(None)
+    if ns.json:
+        _emit_json({"scope": None})
+    elif not ns.quiet:
+        _print("scope cleared")
     return 0
 
 
@@ -507,12 +615,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("task", "comment"): _cmd_task_comment,
         ("project", "ls"): _cmd_project_ls,
         ("project", "add"): _cmd_project_add,
+        ("scope", "show"): _cmd_scope_show,
+        ("scope", "set"): _cmd_scope_set,
+        ("scope", "clear"): _cmd_scope_clear,
     }
 
     if ns.cmd == "task":
         key = ("task", ns.task_cmd)
     elif ns.cmd in ("project", "proj"):
         key = ("project", ns.project_cmd)
+    elif ns.cmd == "scope":
+        key = ("scope", ns.scope_cmd)
     else:
         print(f"error: unknown command {ns.cmd!r}", file=sys.stderr)
         return 2

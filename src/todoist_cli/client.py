@@ -31,7 +31,7 @@ class TodoistClientProtocol(Protocol):
 
     def list_projects(self) -> list[Any]: ...
     def get_project(self, project_id: str) -> Any: ...
-    def add_project(self, name: str, *, color: str | None = None) -> Any: ...
+    def add_project(self, name: str, *, color: str | None = None, parent_id: str | None = None) -> Any: ...
     def list_tasks(self, *, project_id: str | None = None) -> list[Any]: ...
     def get_task(self, task_id: str) -> Any: ...
     def add_task(
@@ -160,11 +160,14 @@ class TodoistClient:
         with _translate():
             return self._api.get_project(project_id)
 
-    def add_project(self, name: str, *, color: str | None = None):
+    def add_project(self, name: str, *, color: str | None = None, parent_id: str | None = None):
         with _translate():
+            kwargs: dict = {}
             if color is not None:
-                return self._api.add_project(name, color=color)
-            return self._api.add_project(name)
+                kwargs["color"] = color
+            if parent_id is not None:
+                kwargs["parent_id"] = parent_id
+            return self._api.add_project(name, **kwargs)
 
     # ----- tasks ---------------------------------------------------------
 

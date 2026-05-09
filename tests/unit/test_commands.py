@@ -204,3 +204,132 @@ def test_project_ls_escapes_slash_in_name(fake_client):
     p = fake_client.add_project("a/b")
     rows, _ = commands.project_ls(fake_client)
     assert any(r.id == str(p.id) and r.path == "a\\/b" for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# Scope-lock (PRD §13)
+# ---------------------------------------------------------------------------
+
+
+def _build_scoped_fake():
+    """Fake account with a 'Scope' root, a child under scope, an unrelated
+    top-level project ('Outside'), and one task in each."""
+    from tests.conftest import FakeClient, FakeProject, FakeTask
+    scope_root = FakeProject(id="scope-root", name="Scope")
+    scope_child = FakeProject(id="scope-child", name="Child", parent_id="scope-root")
+    outside = FakeProject(id="outside-id", name="Outside")
+    inside_task = FakeTask(id="t-inside", content="inside", project_id="scope-root", priority=1)
+    child_task = FakeTask(id="t-child", content="child", project_id="scope-child", priority=1)
+    outside_task = FakeTask(id="t-outside", content="outside", project_id="outside-id", priority=1)
+    return FakeClient(
+        projects=[scope_root, scope_child, outside],
+        tasks=[inside_task, child_task, outside_task],
+    )
+
+
+def test_scope_task_ls_filters_to_subtree():
+    client = _build_scoped_fake()
+    rows, _ = commands.task_ls(client, scope_project_id="scope-root")
+    ids = {r.id for r in rows}
+    assert ids == {"t-inside", "t-child"}
+
+
+def test_scope_task_get_outside_reports_not_found():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    with pytest.raises(NotFoundError):
+        commands.task_get(client, "t-outside", scope_project_id="scope-root")
+
+
+def test_scope_task_done_outside_blocks_completion():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    with pytest.raises(NotFoundError):
+        commands.task_done(client, "t-outside", scope_project_id="scope-root")
+    assert "t-outside" not in client.completed
+
+
+def test_scope_task_rm_outside_blocks_delete():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    with pytest.raises(NotFoundError):
+        commands.task_rm(client, "t-outside", scope_project_id="scope-root")
+    assert "t-outside" not in client.deleted
+    # Task still present.
+    assert any(t.id == "t-outside" for t in client.tasks)
+
+
+def test_scope_task_add_no_project_defaults_to_scope_root():
+    client = _build_scoped_fake()
+    row, _ = commands.task_add(client, "new task", scope_project_id="scope-root")
+    assert row.project_id == "scope-root"
+
+
+def test_scope_task_add_explicit_outside_project_blocked():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    pre = len(client.added_tasks)
+    with pytest.raises(NotFoundError):
+        commands.task_add(client, "x", project="Outside", scope_project_id="scope-root")
+    assert len(client.added_tasks) == pre
+
+
+def test_scope_task_add_subtask_under_outside_parent_blocked():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    with pytest.raises(NotFoundError):
+        commands.task_add(client, "sub", parent_id="t-outside", scope_project_id="scope-root")
+
+
+def test_scope_project_ls_filters_to_subtree():
+    client = _build_scoped_fake()
+    rows, _ = commands.project_ls(client, scope_project_id="scope-root")
+    ids = {r.id for r in rows}
+    assert ids == {"scope-root", "scope-child"}
+
+
+def test_scope_project_add_default_parent_is_scope_root():
+    client = _build_scoped_fake()
+    row, raw = commands.project_add(client, "Sibling", scope_project_id="scope-root")
+    assert raw.parent_id == "scope-root"
+    assert row.path.startswith("Scope/")
+
+
+def test_scope_project_add_explicit_outside_parent_blocked():
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    pre = len(client.added_projects)
+    with pytest.raises(NotFoundError):
+        commands.project_add(client, "x", parent="Outside", scope_project_id="scope-root")
+    assert len(client.added_projects) == pre
+
+
+def test_scope_unknown_scope_id_fails_closed():
+    """If the configured scope id doesn't exist on the account, every
+    command must fail closed rather than silently degrade to full access."""
+    from todoist_cli.errors import NotFoundError
+    client = _build_scoped_fake()
+    with pytest.raises(NotFoundError):
+        commands.task_ls(client, scope_project_id="does-not-exist")
+    with pytest.raises(NotFoundError):
+        commands.project_ls(client, scope_project_id="does-not-exist")
+    with pytest.raises(NotFoundError):
+        commands.task_get(client, "t-inside", scope_project_id="does-not-exist")
+
+
+def test_scope_resolves_against_scope_only_no_ambiguity_leak():
+    """CTO security review #1 — when an out-of-scope project shares a leaf
+    name with one in scope, --project must resolve to the in-scope one
+    (no 'ambiguous' UsageError leaking the namesake's existence)."""
+    from tests.conftest import FakeClient, FakeProject, FakeTask
+    in_scope = FakeProject(id="scope", name="Scope")
+    in_scope_pigment = FakeProject(id="ip", name="Pigment", parent_id="scope")
+    out_pigment = FakeProject(id="op", name="Pigment")  # collision, top-level
+    in_task = FakeTask(id="ti", content="x", project_id="ip", priority=1)
+    out_task = FakeTask(id="to", content="y", project_id="op", priority=1)
+    client = FakeClient(
+        projects=[in_scope, in_scope_pigment, out_pigment],
+        tasks=[in_task, out_task],
+    )
+    rows, _ = commands.task_ls(client, project="Pigment", scope_project_id="scope")
+    assert {r.id for r in rows} == {"ti"}

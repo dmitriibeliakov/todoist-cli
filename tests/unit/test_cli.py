@@ -275,3 +275,55 @@ def test_cli_auth_login_json_emits_json(monkeypatch, tmp_path):
     assert "saved /" not in out
     parsed = _json.loads(out)
     assert "saved" in parsed
+
+
+# ---------------------------------------------------------------------------
+# scope.locked enforcement (CTO security review #2)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_scope_set_blocked_when_locked(patched_cli, monkeypatch):
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: config.Config(token="fake-token", scope_project_id="p_inbox", scope_locked=True),
+    )
+    code, out, err = _capture(monkeypatch, ["scope", "set", "Side project: book"])
+    assert code == 3
+    assert "scope is locked" in err
+    assert out == ""
+
+
+def test_cli_scope_clear_blocked_when_locked(patched_cli, monkeypatch):
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: config.Config(token="fake-token", scope_project_id="p_inbox", scope_locked=True),
+    )
+    code, out, err = _capture(monkeypatch, ["scope", "clear"])
+    assert code == 3
+    assert "scope is locked" in err
+
+
+def test_cli_scope_show_reports_locked(patched_cli, monkeypatch):
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: config.Config(token="fake-token", scope_project_id="p_inbox", scope_locked=True),
+    )
+    code, out, _ = _capture(monkeypatch, ["scope", "show"])
+    assert code == 0
+    assert "locked" in out
+
+
+def test_cli_task_get_outside_scope_exits_4(patched_cli, monkeypatch):
+    """Belt-and-braces: out-of-scope task id surfaces as 'not found'."""
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: config.Config(token="fake-token", scope_project_id="p_inbox"),
+    )
+    # 1003 lives in p_book per the fake fixture; p_inbox is the scope.
+    code, _, err = _capture(monkeypatch, ["task", "get", "1003"])
+    assert code == 4
+    assert "not found" in err
